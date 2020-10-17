@@ -22,6 +22,8 @@ from freqtrade.freqtradebot import FreqtradeBot
 from freqtrade.persistence import Trade
 from freqtrade.resolvers import ExchangeResolver
 from freqtrade.worker import Worker
+from tests.conftest_trades import (mock_trade_1, mock_trade_2, mock_trade_3,
+                                   mock_trade_4, mock_trade_5, mock_trade_6)
 
 logging.getLogger('').setLevel(logging.INFO)
 
@@ -78,7 +80,7 @@ def patch_exchange(mocker, api_mock=None, id='bittrex', mock_markets=True) -> No
 def get_patched_exchange(mocker, config, api_mock=None, id='bittrex',
                          mock_markets=True) -> Exchange:
     patch_exchange(mocker, api_mock, id, mock_markets)
-    config["exchange"]["name"] = id
+    config['exchange']['name'] = id
     try:
         exchange = ExchangeResolver.load_exchange(id, config)
     except ImportError:
@@ -163,7 +165,7 @@ def patch_get_signal(freqtrade: FreqtradeBot, value=(True, False)) -> None:
     :param value: which value IStrategy.get_signal() must return
     :return: None
     """
-    freqtrade.strategy.get_signal = lambda e, s, t: value
+    freqtrade.strategy.get_signal = lambda e, s, x: value
     freqtrade.exchange.refresh_latest_ohlcv = lambda p: None
 
 
@@ -172,44 +174,22 @@ def create_mock_trades(fee):
     Create some fake trades ...
     """
     # Simulate dry_run entries
-    trade = Trade(
-        pair='ETH/BTC',
-        stake_amount=0.001,
-        amount=123.0,
-        fee_open=fee.return_value,
-        fee_close=fee.return_value,
-        open_rate=0.123,
-        exchange='bittrex',
-        open_order_id='dry_run_buy_12345'
-    )
+    trade = mock_trade_1(fee)
     Trade.session.add(trade)
 
-    trade = Trade(
-        pair='ETC/BTC',
-        stake_amount=0.001,
-        amount=123.0,
-        fee_open=fee.return_value,
-        fee_close=fee.return_value,
-        open_rate=0.123,
-        close_rate=0.128,
-        close_profit=0.005,
-        exchange='bittrex',
-        is_open=False,
-        open_order_id='dry_run_sell_12345'
-    )
+    trade = mock_trade_2(fee)
     Trade.session.add(trade)
 
-    # Simulate prod entry
-    trade = Trade(
-        pair='ETC/BTC',
-        stake_amount=0.001,
-        amount=123.0,
-        fee_open=fee.return_value,
-        fee_close=fee.return_value,
-        open_rate=0.123,
-        exchange='bittrex',
-        open_order_id='prod_buy_12345'
-    )
+    trade = mock_trade_3(fee)
+    Trade.session.add(trade)
+
+    trade = mock_trade_4(fee)
+    Trade.session.add(trade)
+
+    trade = mock_trade_5(fee)
+    Trade.session.add(trade)
+
+    trade = mock_trade_6(fee)
     Trade.session.add(trade)
 
 
@@ -661,7 +641,8 @@ def shitcoinmarkets(markets):
     Fixture with shitcoin markets - used to test filters in pairlists
     """
     shitmarkets = deepcopy(markets)
-    shitmarkets.update({'HOT/BTC': {
+    shitmarkets.update({
+        'HOT/BTC': {
             'id': 'HOTBTC',
             'symbol': 'HOT/BTC',
             'base': 'HOT',
@@ -766,7 +747,32 @@ def shitcoinmarkets(markets):
             "spot": True,
             "future": False,
             "active": True
-    },
+        },
+        'ADADOUBLE/USDT': {
+            "percentage": True,
+            "tierBased": False,
+            "taker": 0.001,
+            "maker": 0.001,
+            "precision": {
+                "base": 8,
+                "quote": 8,
+                "amount": 2,
+                "price": 4
+            },
+            "limits": {
+            },
+            "id": "ADADOUBLEUSDT",
+            "symbol": "ADADOUBLE/USDT",
+            "base": "ADADOUBLE",
+            "quote": "USDT",
+            "baseId": "ADADOUBLE",
+            "quoteId": "USDT",
+            "info": {},
+            "type": "spot",
+            "spot": True,
+            "future": False,
+            "active": True
+        },
         })
     return shitmarkets
 
@@ -777,19 +783,30 @@ def markets_empty():
 
 
 @pytest.fixture(scope='function')
-def limit_buy_order():
+def limit_buy_order_open():
     return {
         'id': 'mocked_limit_buy',
         'type': 'limit',
         'side': 'buy',
         'symbol': 'mocked',
         'datetime': arrow.utcnow().isoformat(),
+        'timestamp': arrow.utcnow().timestamp,
         'price': 0.00001099,
         'amount': 90.99181073,
-        'filled': 90.99181073,
-        'remaining': 0.0,
-        'status': 'closed'
+        'filled': 0.0,
+        'cost': 0.0009999,
+        'remaining': 90.99181073,
+        'status': 'open'
     }
+
+
+@pytest.fixture(scope='function')
+def limit_buy_order(limit_buy_order_open):
+    order = deepcopy(limit_buy_order_open)
+    order['status'] = 'closed'
+    order['filled'] = order['amount']
+    order['remaining'] = 0.0
+    return order
 
 
 @pytest.fixture(scope='function')
@@ -974,19 +991,29 @@ def limit_buy_order_canceled_empty(request):
 
 
 @pytest.fixture
-def limit_sell_order():
+def limit_sell_order_open():
     return {
         'id': 'mocked_limit_sell',
         'type': 'limit',
         'side': 'sell',
         'pair': 'mocked',
         'datetime': arrow.utcnow().isoformat(),
+        'timestamp': arrow.utcnow().timestamp,
         'price': 0.00001173,
         'amount': 90.99181073,
-        'filled': 90.99181073,
-        'remaining': 0.0,
-        'status': 'closed'
+        'filled': 0.0,
+        'remaining': 90.99181073,
+        'status': 'open'
     }
+
+
+@pytest.fixture
+def limit_sell_order(limit_sell_order_open):
+    order = deepcopy(limit_sell_order_open)
+    order['remaining'] = 0.0
+    order['filled'] = order['amount']
+    order['status'] = 'closed'
+    return order
 
 
 @pytest.fixture
@@ -1379,6 +1406,28 @@ def tickers():
             "open": None,
             "close": None,
             "last": None,
+            "previousClose": None,
+            "change": None,
+            "percentage": 2.628,
+            "average": None,
+            "baseVolume": 0.0,
+            "quoteVolume": 0.0,
+            "info": {}
+        },
+        "ADADOUBLE/USDT": {
+            "symbol": "ADADOUBLE/USDT",
+            "timestamp": 1580469388244,
+            "datetime": "2020-01-31T11:16:28.244Z",
+            "high": None,
+            "low": None,
+            "bid": 0.7305,
+            "bidVolume": None,
+            "ask": 0.7342,
+            "askVolume": None,
+            "vwap": None,
+            "open": None,
+            "close": None,
+            "last": 0,
             "previousClose": None,
             "change": None,
             "percentage": 2.628,

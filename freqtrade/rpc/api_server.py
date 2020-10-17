@@ -16,6 +16,9 @@ from werkzeug.security import safe_str_cmp
 from werkzeug.serving import make_server
 
 from freqtrade.__init__ import __version__
+from freqtrade.constants import DATETIME_PRINT_FORMAT
+from freqtrade.persistence import Trade
+from freqtrade.rpc.fiat_convert import CryptoToFiatConverter
 from freqtrade.rpc.rpc import RPC, RPCException
 
 logger = logging.getLogger(__name__)
@@ -31,7 +34,7 @@ class ArrowJSONEncoder(JSONEncoder):
             elif isinstance(obj, date):
                 return obj.strftime("%Y-%m-%d")
             elif isinstance(obj, datetime):
-                return obj.strftime("%Y-%m-%d %H:%M:%S")
+                return obj.strftime(DATETIME_PRINT_FORMAT)
             iterable = iter(obj)
         except TypeError:
             pass
@@ -55,7 +58,7 @@ def require_login(func: Callable[[Any, Any], Any]):
 
 
 # Type should really be Callable[[ApiServer], Any], but that will create a circular dependency
-def rpc_catch_errors(func: Callable[[Any], Any]):
+def rpc_catch_errors(func: Callable[..., Any]):
 
     def func_wrapper(obj, *args, **kwargs):
 
@@ -66,6 +69,11 @@ def rpc_catch_errors(func: Callable[[Any], Any]):
             return obj.rest_error(f"Error querying {func.__name__}: {e}")
 
     return func_wrapper
+
+
+def shutdown_session(exception=None):
+    # Remove scoped session
+    Trade.session.remove()
 
 
 class ApiServer(RPC):
@@ -102,8 +110,13 @@ class ApiServer(RPC):
         self.jwt = JWTManager(self.app)
         self.app.json_encoder = ArrowJSONEncoder
 
+        self.app.teardown_appcontext(shutdown_session)
+
         # Register application handling
         self.register_rest_rpc_urls()
+
+        if self._config.get('fiat_display_currency', None):
+            self._fiat_converter = CryptoToFiatConverter()
 
         thread = threading.Thread(target=self.run, daemon=True)
         thread.start()
@@ -182,6 +195,7 @@ class ApiServer(RPC):
         self.app.add_url_rule(f'{BASE_URI}/count', 'count', view_func=self._count, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/daily', 'daily', view_func=self._daily, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/edge', 'edge', view_func=self._edge, methods=['GET'])
+        self.app.add_url_rule(f'{BASE_URI}/logs', 'log', view_func=self._get_logs, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/profit', 'profit',
                               view_func=self._profit, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/performance', 'performance',
@@ -196,6 +210,8 @@ class ApiServer(RPC):
                               view_func=self._ping, methods=['GET'])
         self.app.add_url_rule(f'{BASE_URI}/trades', 'trades',
                               view_func=self._trades, methods=['GET'])
+        self.app.add_url_rule(f'{BASE_URI}/trades/<int:tradeid>', 'trades_delete',
+                              view_func=self._trades_delete, methods=['DELETE'])
         # Combined actions and infos
         self.app.add_url_rule(f'{BASE_URI}/blacklist', 'blacklist', view_func=self._blacklist,
                               methods=['GET', 'POST'])
@@ -205,9 +221,6 @@ class ApiServer(RPC):
                               view_func=self._forcebuy, methods=['POST'])
         self.app.add_url_rule(f'{BASE_URI}/forcesell', 'forcesell', view_func=self._forcesell,
                               methods=['POST'])
-
-        # TODO: Implement the following
-        # help (?)
 
     @require_login
     def page_not_found(self, error):
@@ -344,6 +357,18 @@ class ApiServer(RPC):
 
     @require_login
     @rpc_catch_errors
+    def _get_logs(self):
+        """
+        Returns latest logs
+         get:
+          param:
+            limit: Only get a certain number of records
+        """
+        limit = int(request.args.get('limit', 0)) or None
+        return self.rest_dump(self._rpc_get_logs(limit))
+
+    @require_login
+    @rpc_catch_errors
     def _edge(self):
         """
         Returns information related to Edge.
@@ -419,6 +444,19 @@ class ApiServer(RPC):
         limit = int(request.args.get('limit', 0))
         results = self._rpc_trade_history(limit)
         return self.rest_dump(results)
+
+    @require_login
+    @rpc_catch_errors
+    def _trades_delete(self, tradeid):
+        """
+        Handler for DELETE /trades/<tradeid> endpoint.
+        Removes the trade from the database (tries to cancel open orders first!)
+        get:
+          param:
+            tradeid: Numeric trade-id assigned to the trade.
+        """
+        result = self._rpc_delete(tradeid)
+        return self.rest_dump(result)
 
     @require_login
     @rpc_catch_errors

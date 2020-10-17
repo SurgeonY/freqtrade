@@ -229,7 +229,7 @@ Because hyperopt tries a lot of combinations to find the best parameters it will
 We strongly recommend to use `screen` or `tmux` to prevent any connection loss.
 
 ```bash
-freqtrade hyperopt --config config.json --hyperopt <hyperoptname> -e 5000 --spaces all
+freqtrade hyperopt --config config.json --hyperopt <hyperoptname> -e 500 --spaces all
 ```
 
 Use `<hyperoptname>` as the name of the custom hyperopt used.
@@ -370,6 +370,9 @@ By default, hyperopt prints colorized results -- epochs with positive profit are
 
 You can use the `--print-all` command line option if you would like to see all results in the hyperopt output, not only the best ones. When `--print-all` is used, current best results are also colorized by default -- they are printed in bold (bright) style. This can also be switched off with the `--no-color` command line option.
 
+!!! Note "Windows and color output"
+    Windows does not support color-output nativly, therefore it is automatically disabled. To have color-output for hyperopt running under windows, please consider using WSL.
+
 ### Understand Hyperopt ROI results
 
 If you are optimizing ROI (i.e. if optimization search-space contains 'all', 'default' or 'roi'), your result will look as follows and include a ROI table:
@@ -498,8 +501,3 @@ After you run Hyperopt for the desired amount of epochs, you can later list all 
 Once the optimized strategy has been implemented into your strategy, you should backtest this strategy to make sure everything is working as expected.
 
 To achieve same results (number of trades, their durations, profit, etc.) than during Hyperopt, please use same set of arguments `--dmmp`/`--disable-max-market-positions` and `--eps`/`--enable-position-stacking` for Backtesting.
-
-## Next Step
-
-Now you have a perfect bot and want to control it from Telegram. Your
-next step is to learn the [Telegram usage](telegram-usage.md).

@@ -13,6 +13,7 @@ from typing import List, Optional, Type
 from pandas import DataFrame
 
 from freqtrade.configuration import TimeRange
+from freqtrade.constants import ListPairsWithTimeframes
 from freqtrade.data.converter import (clean_ohlcv_dataframe,
                                       trades_remove_duplicates, trim_dataframe)
 from freqtrade.exchange import timeframe_to_seconds
@@ -29,6 +30,14 @@ class IDataHandler(ABC):
         self._datadir = datadir
 
     @abstractclassmethod
+    def ohlcv_get_available_data(cls, datadir: Path) -> ListPairsWithTimeframes:
+        """
+        Returns a list of all pairs with ohlcv data available in this datadir
+        :param datadir: Directory to search for ohlcv files
+        :return: List of Tuples of (pair, timeframe)
+        """
+
+    @abstractclassmethod
     def ohlcv_get_pairs(cls, datadir: Path, timeframe: str) -> List[str]:
         """
         Returns a list of all pairs with ohlcv data available in this datadir
@@ -41,9 +50,7 @@ class IDataHandler(ABC):
     @abstractmethod
     def ohlcv_store(self, pair: str, timeframe: str, data: DataFrame) -> None:
         """
-        Store data in json format "values".
-            format looks as follows:
-            [[<date>,<open>,<high>,<low>,<close>]]
+        Store ohlcv data.
         :param pair: Pair - used to generate filename
         :timeframe: Timeframe - used to generate filename
         :data: Dataframe containing OHLCV data
@@ -230,6 +237,9 @@ def get_datahandlerclass(datatype: str) -> Type[IDataHandler]:
     elif datatype == 'jsongz':
         from .jsondatahandler import JsonGzDataHandler
         return JsonGzDataHandler
+    elif datatype == 'hdf5':
+        from .hdf5datahandler import HDF5DataHandler
+        return HDF5DataHandler
     else:
         raise ValueError(f"No datahandler for datatype {datatype} available.")
 

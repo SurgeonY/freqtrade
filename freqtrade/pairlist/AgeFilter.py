@@ -5,6 +5,7 @@ import logging
 import arrow
 from typing import Any, Dict
 
+from freqtrade.exceptions import OperationalException
 from freqtrade.misc import plural
 from freqtrade.pairlist.IPairList import IPairList
 
@@ -23,7 +24,13 @@ class AgeFilter(IPairList):
         super().__init__(exchange, pairlistmanager, config, pairlistconfig, pairlist_pos)
 
         self._min_days_listed = pairlistconfig.get('min_days_listed', 10)
-        self._enabled = self._min_days_listed >= 1
+
+        if self._min_days_listed < 1:
+            raise OperationalException("AgeFilter requires min_days_listed to be >= 1")
+        if self._min_days_listed > exchange.ohlcv_candle_limit:
+            raise OperationalException("AgeFilter requires min_days_listed to not exceed "
+                                       "exchange max request size "
+                                       f"({exchange.ohlcv_candle_limit})")
 
     @property
     def needstickers(self) -> bool:
@@ -69,7 +76,7 @@ class AgeFilter(IPairList):
                 return True
             else:
                 self.log_on_refresh(logger.info, f"Removed {ticker['symbol']} from whitelist, "
-                                                 f"because age is less than "
+                                                 f"because age {len(daily_candles)} is less than "
                                                  f"{self._min_days_listed} "
                                                  f"{plural(self._min_days_listed, 'day')}")
                 return False

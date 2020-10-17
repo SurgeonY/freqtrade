@@ -8,7 +8,6 @@ import logging
 from copy import deepcopy
 from datetime import datetime, timezone
 from math import ceil
-from random import randint
 from typing import Any, Dict, List, Optional, Tuple
 
 import arrow
@@ -18,12 +17,15 @@ from ccxt.base.decimal_to_precision import (ROUND_DOWN, ROUND_UP, TICK_SIZE,
                                             TRUNCATE, decimal_to_precision)
 from pandas import DataFrame
 
-from freqtrade.data.converter import ohlcv_to_dataframe, trades_dict_to_list
-from freqtrade.exceptions import (DependencyException, InvalidOrderException,
-                                  OperationalException, TemporaryError)
-from freqtrade.exchange.common import BAD_EXCHANGES, retrier, retrier_async
-from freqtrade.misc import deep_merge_dicts, safe_value_fallback
 from freqtrade.constants import ListPairsWithTimeframes
+from freqtrade.data.converter import ohlcv_to_dataframe, trades_dict_to_list
+from freqtrade.exceptions import (DDosProtection, ExchangeError,
+                                  InsufficientFundsError,
+                                  InvalidOrderException, OperationalException,
+                                  RetryableOrderError, TemporaryError)
+from freqtrade.exchange.common import (API_FETCH_ORDER_RETRY_COUNT,
+                                       BAD_EXCHANGES, retrier, retrier_async)
+from freqtrade.misc import deep_merge_dicts, safe_value_fallback2
 
 CcxtModuleType = Any
 
@@ -84,8 +86,8 @@ class Exchange:
 
         # Deep merge ft_has with default ft_has options
         self._ft_has = deep_merge_dicts(self._ft_has, deepcopy(self._ft_has_default))
-        if exchange_config.get("_ft_has_params"):
-            self._ft_has = deep_merge_dicts(exchange_config.get("_ft_has_params"),
+        if exchange_config.get('_ft_has_params'):
+            self._ft_has = deep_merge_dicts(exchange_config.get('_ft_has_params'),
                                             self._ft_has)
             logger.info("Overriding exchange._ft_has with config params, result: %s", self._ft_has)
 
@@ -187,6 +189,11 @@ class Exchange:
         return list((self._api.timeframes or {}).keys())
 
     @property
+    def ohlcv_candle_limit(self) -> int:
+        """exchange ohlcv candle limit"""
+        return int(self._ohlcv_candle_limit)
+
+    @property
     def markets(self) -> Dict:
         """exchange ccxt markets"""
         if not self._api.markets:
@@ -216,7 +223,7 @@ class Exchange:
         if quote_currencies:
             markets = {k: v for k, v in markets.items() if v['quote'] in quote_currencies}
         if pairs_only:
-            markets = {k: v for k, v in markets.items() if symbol_is_pair(v['symbol'])}
+            markets = {k: v for k, v in markets.items() if self.market_is_tradable(v)}
         if active_only:
             markets = {k: v for k, v in markets.items() if market_is_active(v)}
         return markets
@@ -240,6 +247,19 @@ class Exchange:
         """
         return self.markets.get(pair, {}).get('base', '')
 
+    def market_is_tradable(self, market: Dict[str, Any]) -> bool:
+        """
+        Check if the market symbol is tradable by Freqtrade.
+        By default, checks if it's splittable by `/` and both sides correspond to base / quote
+        """
+        symbol_parts = market['symbol'].split('/')
+        return (len(symbol_parts) == 2 and
+                len(symbol_parts[0]) > 0 and
+                len(symbol_parts[1]) > 0 and
+                symbol_parts[0] == market.get('base') and
+                symbol_parts[1] == market.get('quote')
+                )
+
     def klines(self, pair_interval: Tuple[str, str], copy: bool = True) -> DataFrame:
         if pair_interval in self._klines:
             return self._klines[pair_interval].copy() if copy else self._klines[pair_interval]
@@ -252,8 +272,8 @@ class Exchange:
                 api.urls['api'] = api.urls['test']
                 logger.info("Enabled Sandbox API on %s", name)
             else:
-                logger.warning(name, "No Sandbox URL in CCXT, exiting. "
-                                     "Please check your config.json")
+                logger.warning(
+                    f"No Sandbox URL in CCXT for {name}, exiting. Please check your config.json")
                 raise OperationalException(f'Exchange {name} does not provide a sandbox api')
 
     def _load_async_markets(self, reload: bool = False) -> None:
@@ -351,7 +371,7 @@ class Exchange:
         for pair in [f"{curr_1}/{curr_2}", f"{curr_2}/{curr_1}"]:
             if pair in self.markets and self.markets[pair].get('active'):
                 return pair
-        raise DependencyException(f"Could not combine {curr_1} and {curr_2} to get a valid pair.")
+        raise ExchangeError(f"Could not combine {curr_1} and {curr_2} to get a valid pair.")
 
     def validate_timeframes(self, timeframe: Optional[str]) -> None:
         """
@@ -468,18 +488,20 @@ class Exchange:
 
     def dry_run_order(self, pair: str, ordertype: str, side: str, amount: float,
                       rate: float, params: Dict = {}) -> Dict[str, Any]:
-        order_id = f'dry_run_{side}_{randint(0, 10**6)}'
+        order_id = f'dry_run_{side}_{datetime.now().timestamp()}'
         _amount = self.amount_to_precision(pair, amount)
         dry_order = {
-            "id": order_id,
-            'pair': pair,
+            'id': order_id,
+            'symbol': pair,
             'price': rate,
+            'average': rate,
             'amount': _amount,
             'cost': _amount * rate,
             'type': ordertype,
             'side': side,
             'remaining': _amount,
             'datetime': arrow.utcnow().isoformat(),
+            'timestamp': int(arrow.utcnow().timestamp * 1000),
             'status': "closed" if ordertype == "market" else "open",
             'fee': None,
             'info': {}
@@ -518,15 +540,17 @@ class Exchange:
                                           amount, rate_for_order, params)
 
         except ccxt.InsufficientFunds as e:
-            raise DependencyException(
-                f'Insufficient funds to create {ordertype} {side} order on market {pair}.'
+            raise InsufficientFundsError(
+                f'Insufficient funds to create {ordertype} {side} order on market {pair}. '
                 f'Tried to {side} amount {amount} at rate {rate}.'
                 f'Message: {e}') from e
         except ccxt.InvalidOrder as e:
-            raise DependencyException(
-                f'Could not create {ordertype} {side} order on market {pair}.'
-                f'Tried to {side} amount {amount} at rate {rate}.'
+            raise ExchangeError(
+                f'Could not create {ordertype} {side} order on market {pair}. '
+                f'Tried to {side} amount {amount} at rate {rate}. '
                 f'Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not place {side} order due to {e.__class__.__name__}. Message: {e}') from e
@@ -606,6 +630,8 @@ class Exchange:
             balances.pop("used", None)
 
             return balances
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not get balance due to {e.__class__.__name__}. Message: {e}') from e
@@ -620,6 +646,8 @@ class Exchange:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching tickers in batch. '
                 f'Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not load tickers due to {e.__class__.__name__}. Message: {e}') from e
@@ -630,9 +658,11 @@ class Exchange:
     def fetch_ticker(self, pair: str) -> dict:
         try:
             if pair not in self._api.markets or not self._api.markets[pair].get('active'):
-                raise DependencyException(f"Pair {pair} not available")
+                raise ExchangeError(f"Pair {pair} not available")
             data = self._api.fetch_ticker(pair)
             return data
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not load ticker due to {e.__class__.__name__}. Message: {e}') from e
@@ -766,6 +796,8 @@ class Exchange:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching historical '
                 f'candle (OHLCV) data. Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(f'Could not fetch historical candle (OHLCV) data '
                                  f'for pair {pair} due to {e.__class__.__name__}. '
@@ -802,6 +834,8 @@ class Exchange:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching historical trade data.'
                 f'Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(f'Could not load trade history due to {e.__class__.__name__}. '
                                  f'Message: {e}') from e
@@ -933,7 +967,7 @@ class Exchange:
     def check_order_canceled_empty(self, order: Dict) -> bool:
         """
         Verify if an order has been cancelled without being partially filled
-        :param order: Order dict as returned from get_order()
+        :param order: Order dict as returned from fetch_order()
         :return: True if order has been cancelled without being filled, False otherwise.
         """
         return order.get('status') in ('closed', 'canceled') and order.get('filled') == 0.0
@@ -941,20 +975,27 @@ class Exchange:
     @retrier
     def cancel_order(self, order_id: str, pair: str) -> Dict:
         if self._config['dry_run']:
-            return {}
+            order = self._dry_run_open_orders.get(order_id)
+            if order:
+                order.update({'status': 'canceled', 'filled': 0.0, 'remaining': order['amount']})
+                return order
+            else:
+                return {}
 
         try:
             return self._api.cancel_order(order_id, pair)
         except ccxt.InvalidOrder as e:
             raise InvalidOrderException(
                 f'Could not cancel order. Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not cancel order due to {e.__class__.__name__}. Message: {e}') from e
         except ccxt.BaseError as e:
             raise OperationalException(e) from e
 
-    # Assign method to get_stoploss_order to allow easy overriding in other classes
+    # Assign method to cancel_stoploss_order to allow easy overriding in other classes
     cancel_stoploss_order = cancel_order
 
     def is_cancel_order_result_suitable(self, corder) -> bool:
@@ -968,7 +1009,7 @@ class Exchange:
         """
         Cancel order returning a result.
         Creates a fake result if cancel order returns a non-usable result
-        and get_order does not work (certain exchanges don't return cancelled orders)
+        and fetch_order does not work (certain exchanges don't return cancelled orders)
         :param order_id: Orderid to cancel
         :param pair: Pair corresponding to order_id
         :param amount: Amount to use for fake response
@@ -979,17 +1020,17 @@ class Exchange:
             if self.is_cancel_order_result_suitable(corder):
                 return corder
         except InvalidOrderException:
-            logger.warning(f"Could not cancel order {order_id}.")
+            logger.warning(f"Could not cancel order {order_id} for {pair}.")
         try:
-            order = self.get_order(order_id, pair)
+            order = self.fetch_order(order_id, pair)
         except InvalidOrderException:
             logger.warning(f"Could not fetch cancelled order {order_id}.")
             order = {'fee': {}, 'status': 'canceled', 'amount': amount, 'info': {}}
 
         return order
 
-    @retrier
-    def get_order(self, order_id: str, pair: str) -> Dict:
+    @retrier(retries=API_FETCH_ORDER_RETRY_COUNT)
+    def fetch_order(self, order_id: str, pair: str) -> Dict:
         if self._config['dry_run']:
             try:
                 order = self._dry_run_open_orders[order_id]
@@ -1000,25 +1041,41 @@ class Exchange:
                     f'Tried to get an invalid dry-run-order (id: {order_id}). Message: {e}') from e
         try:
             return self._api.fetch_order(order_id, pair)
+        except ccxt.OrderNotFound as e:
+            raise RetryableOrderError(
+                f'Order not found (pair: {pair} id: {order_id}). Message: {e}') from e
         except ccxt.InvalidOrder as e:
             raise InvalidOrderException(
-                f'Tried to get an invalid order (id: {order_id}). Message: {e}') from e
+                f'Tried to get an invalid order (pair: {pair} id: {order_id}). Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not get order due to {e.__class__.__name__}. Message: {e}') from e
         except ccxt.BaseError as e:
             raise OperationalException(e) from e
 
-    # Assign method to get_stoploss_order to allow easy overriding in other classes
-    get_stoploss_order = get_order
+    # Assign method to fetch_stoploss_order to allow easy overriding in other classes
+    fetch_stoploss_order = fetch_order
+
+    def fetch_order_or_stoploss_order(self, order_id: str, pair: str,
+                                      stoploss_order: bool = False) -> Dict:
+        """
+        Simple wrapper calling either fetch_order or fetch_stoploss_order depending on
+        the stoploss_order parameter
+        :param stoploss_order: If true, uses fetch_stoploss_order, otherwise fetch_order.
+        """
+        if stoploss_order:
+            return self.fetch_stoploss_order(order_id, pair)
+        return self.fetch_order(order_id, pair)
 
     @retrier
     def fetch_l2_order_book(self, pair: str, limit: int = 100) -> dict:
         """
-        get order book level 2 from exchange
-
-        Notes:
-        20180619: bittrex doesnt support limits -.-
+        Get L2 order book from exchange.
+        Can be limited to a certain amount (if supported).
+        Returns a dict in the format
+        {'asks': [price, volume], 'bids': [price, volume]}
         """
         try:
 
@@ -1027,6 +1084,8 @@ class Exchange:
             raise OperationalException(
                 f'Exchange {self._api.name} does not support fetching order book.'
                 f'Message: {e}') from e
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not get order book due to {e.__class__.__name__}. Message: {e}') from e
@@ -1063,7 +1122,8 @@ class Exchange:
             matched_trades = [trade for trade in my_trades if trade['order'] == order_id]
 
             return matched_trades
-
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not get trades due to {e.__class__.__name__}. Message: {e}') from e
@@ -1080,6 +1140,8 @@ class Exchange:
 
             return self._api.calculate_fee(symbol=symbol, type=type, side=side, amount=amount,
                                            price=price, takerOrMaker=taker_or_maker)['rate']
+        except ccxt.DDoSProtection as e:
+            raise DDosProtection(e) from e
         except (ccxt.NetworkError, ccxt.ExchangeError) as e:
             raise TemporaryError(
                 f'Could not get fee info due to {e.__class__.__name__}. Message: {e}') from e
@@ -1114,7 +1176,7 @@ class Exchange:
         if fee_curr in self.get_pair_base_currency(order['symbol']):
             # Base currency - divide by amount
             return round(
-                order['fee']['cost'] / safe_value_fallback(order, order, 'filled', 'amount'), 8)
+                order['fee']['cost'] / safe_value_fallback2(order, order, 'filled', 'amount'), 8)
         elif fee_curr in self.get_pair_quote_currency(order['symbol']):
             # Quote currency - divide by cost
             return round(order['fee']['cost'] / order['cost'], 8) if order['cost'] else None
@@ -1127,9 +1189,9 @@ class Exchange:
                 comb = self.get_valid_pair_combination(fee_curr, self._config['stake_currency'])
                 tick = self.fetch_ticker(comb)
 
-                fee_to_quote_rate = safe_value_fallback(tick, tick, 'last', 'ask')
+                fee_to_quote_rate = safe_value_fallback2(tick, tick, 'last', 'ask')
                 return round((order['fee']['cost'] * fee_to_quote_rate) / order['cost'], 8)
-            except DependencyException:
+            except ExchangeError:
                 return None
 
     def extract_cost_curr_rate(self, order: Dict) -> Tuple[float, str, Optional[float]]:
@@ -1142,7 +1204,6 @@ class Exchange:
         return (order['fee']['cost'],
                 order['fee']['currency'],
                 self.calculate_fee_rate(order))
-        # calculate rate ? (order['fee']['cost'] / (order['amount'] * order['price']))
 
 
 def is_exchange_bad(exchange_name: str) -> bool:
@@ -1226,20 +1287,6 @@ def timeframe_to_next_date(timeframe: str, date: datetime = None) -> datetime:
     new_timestamp = ccxt.Exchange.round_timeframe(timeframe, date.timestamp() * 1000,
                                                   ROUND_UP) // 1000
     return datetime.fromtimestamp(new_timestamp, tz=timezone.utc)
-
-
-def symbol_is_pair(market_symbol: str, base_currency: str = None,
-                   quote_currency: str = None) -> bool:
-    """
-    Check if the market symbol is a pair, i.e. that its symbol consists of the base currency and the
-    quote currency separated by '/' character. If base_currency and/or quote_currency is passed,
-    it also checks that the symbol contains appropriate base and/or quote currency part before
-    and after the separating character correspondingly.
-    """
-    symbol_parts = market_symbol.split('/')
-    return (len(symbol_parts) == 2 and
-            (symbol_parts[0] == base_currency if base_currency else len(symbol_parts[0]) > 0) and
-            (symbol_parts[1] == quote_currency if quote_currency else len(symbol_parts[1]) > 0))
 
 
 def market_is_active(market: Dict) -> bool:
