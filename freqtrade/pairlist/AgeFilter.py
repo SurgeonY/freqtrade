@@ -2,8 +2,9 @@
 Minimum age (days listed) pair list filter
 """
 import logging
-import arrow
 from typing import Any, Dict
+
+import arrow
 
 from freqtrade.exceptions import OperationalException
 from freqtrade.misc import plural
@@ -26,12 +27,11 @@ class AgeFilter(IPairList):
         self._min_days_listed = pairlistconfig.get('min_days_listed', 10)
 
         if self._min_days_listed < 1:
-            raise OperationalException("AgeFilter requires min_days_listed must be >= 1")
+            raise OperationalException("AgeFilter requires min_days_listed to be >= 1")
         if self._min_days_listed > exchange.ohlcv_candle_limit:
-            raise OperationalException("AgeFilter requires min_days_listed must not exceed "
+            raise OperationalException("AgeFilter requires min_days_listed to not exceed "
                                        "exchange max request size "
                                        f"({exchange.ohlcv_candle_limit})")
-        self._enabled = self._min_days_listed >= 1
 
     @property
     def needstickers(self) -> bool:

@@ -11,20 +11,18 @@ import pytest
 from jsonschema import ValidationError
 
 from freqtrade.commands import Arguments
-from freqtrade.configuration import (Configuration, check_exchange,
-                                     remove_credentials,
+from freqtrade.configuration import (Configuration, check_exchange, remove_credentials,
                                      validate_config_consistency)
 from freqtrade.configuration.config_validation import validate_config_schema
-from freqtrade.configuration.deprecated_settings import (
-    check_conflicting_settings, process_deprecated_setting,
-    process_temporary_deprecated_settings)
+from freqtrade.configuration.deprecated_settings import (check_conflicting_settings,
+                                                         process_deprecated_setting,
+                                                         process_temporary_deprecated_settings)
 from freqtrade.configuration.load_config import load_config_file, log_config_error_range
 from freqtrade.constants import DEFAULT_DB_DRYRUN_URL, DEFAULT_DB_PROD_URL
 from freqtrade.exceptions import OperationalException
-from freqtrade.loggers import _set_loggers, setup_logging
+from freqtrade.loggers import _set_loggers, setup_logging, setup_logging_pre
 from freqtrade.state import RunMode
-from tests.conftest import (log_has, log_has_re,
-                            patched_configuration_load_config_file)
+from tests.conftest import log_has, log_has_re, patched_configuration_load_config_file
 
 
 @pytest.fixture(scope="function")
@@ -674,10 +672,12 @@ def test_set_loggers_syslog(mocker):
               'logfile': 'syslog:/dev/log',
               }
 
+    setup_logging_pre()
     setup_logging(config)
-    assert len(logger.handlers) == 2
+    assert len(logger.handlers) == 3
     assert [x for x in logger.handlers if type(x) == logging.handlers.SysLogHandler]
     assert [x for x in logger.handlers if type(x) == logging.StreamHandler]
+    assert [x for x in logger.handlers if type(x) == logging.handlers.BufferingHandler]
     # reset handlers to not break pytest
     logger.handlers = orig_handlers
 
@@ -727,7 +727,10 @@ def test_set_logfile(default_conf, mocker):
     assert validated_conf['logfile'] == "test_file.log"
     f = Path("test_file.log")
     assert f.is_file()
-    f.unlink()
+    try:
+        f.unlink()
+    except Exception:
+        pass
 
 
 def test_load_config_warn_forcebuy(default_conf, mocker, caplog) -> None:
@@ -871,6 +874,14 @@ def test_load_config_default_exchange_name(all_conf) -> None:
         validate_config_schema(all_conf)
 
 
+def test_load_config_stoploss_exchange_limit_ratio(all_conf) -> None:
+    all_conf['order_types']['stoploss_on_exchange_limit_ratio'] = 1.15
+
+    with pytest.raises(ValidationError,
+                       match=r"1.15 is greater than the maximum"):
+        validate_config_schema(all_conf)
+
+
 @pytest.mark.parametrize("keys", [("exchange", "sandbox", False),
                                   ("exchange", "key", ""),
                                   ("exchange", "secret", ""),
@@ -997,7 +1008,7 @@ def test_pairlist_resolving_fallback(mocker):
 
     args = Arguments(arglist).get_parsed_arg()
     # Fix flaky tests if config.json exists
-    args["config"] = None
+    args['config'] = None
 
     configuration = Configuration(args, RunMode.OTHER)
     config = configuration.get_config()

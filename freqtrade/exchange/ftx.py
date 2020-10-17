@@ -1,14 +1,14 @@
 """ FTX exchange subclass """
 import logging
-from typing import Dict
+from typing import Any, Dict
 
 import ccxt
 
-from freqtrade.exceptions import (DDosProtection, ExchangeError,
-                                  InvalidOrderException, OperationalException,
-                                  TemporaryError)
+from freqtrade.exceptions import (DDosProtection, InsufficientFundsError, InvalidOrderException,
+                                  OperationalException, TemporaryError)
 from freqtrade.exchange import Exchange
-from freqtrade.exchange.common import retrier
+from freqtrade.exchange.common import API_FETCH_ORDER_RETRY_COUNT, retrier
+
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,16 @@ class Ftx(Exchange):
         "stoploss_on_exchange": True,
         "ohlcv_candle_limit": 1500,
     }
+
+    def market_is_tradable(self, market: Dict[str, Any]) -> bool:
+        """
+        Check if the market symbol is tradable by Freqtrade.
+        Default checks + check if pair is spot pair (no futures trading yet).
+        """
+        parent_check = super().market_is_tradable(market)
+
+        return (parent_check and
+                market.get('spot', False) is True)
 
     def stoploss_adjust(self, stop_loss: float, order: Dict) -> bool:
         """
@@ -61,7 +71,7 @@ class Ftx(Exchange):
                         'stop price: %s.', pair, stop_price)
             return order
         except ccxt.InsufficientFunds as e:
-            raise ExchangeError(
+            raise InsufficientFundsError(
                 f'Insufficient funds to create {ordertype} sell order on market {pair}. '
                 f'Tried to create stoploss with amount {amount} at stoploss {stop_price}. '
                 f'Message: {e}') from e
@@ -78,7 +88,7 @@ class Ftx(Exchange):
         except ccxt.BaseError as e:
             raise OperationalException(e) from e
 
-    @retrier
+    @retrier(retries=API_FETCH_ORDER_RETRY_COUNT)
     def fetch_stoploss_order(self, order_id: str, pair: str) -> Dict:
         if self._config['dry_run']:
             try:

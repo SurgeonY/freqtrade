@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 from freqtrade.configuration import setup_utils_configuration
-from freqtrade.configuration.directory_operations import (copy_sample_files,
-                                                          create_userdata_dir)
+from freqtrade.configuration.directory_operations import copy_sample_files, create_userdata_dir
 from freqtrade.constants import USERPATH_HYPEROPTS, USERPATH_STRATEGIES
 from freqtrade.exceptions import OperationalException
 from freqtrade.misc import render_template, render_template_with_fallback
 from freqtrade.state import RunMode
+
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,7 @@ def start_new_strategy(args: Dict[str, Any]) -> None:
         if args["strategy"] == "DefaultStrategy":
             raise OperationalException("DefaultStrategy is not allowed as name.")
 
-        new_path = config['user_data_dir'] / USERPATH_STRATEGIES / (args["strategy"] + ".py")
+        new_path = config['user_data_dir'] / USERPATH_STRATEGIES / (args['strategy'] + '.py')
 
         if new_path.exists():
             raise OperationalException(f"`{new_path}` already exists. "
@@ -125,11 +125,11 @@ def start_new_hyperopt(args: Dict[str, Any]) -> None:
 
     config = setup_utils_configuration(args, RunMode.UTIL_NO_EXCHANGE)
 
-    if "hyperopt" in args and args["hyperopt"]:
-        if args["hyperopt"] == "DefaultHyperopt":
+    if 'hyperopt' in args and args['hyperopt']:
+        if args['hyperopt'] == 'DefaultHyperopt':
             raise OperationalException("DefaultHyperopt is not allowed as name.")
 
-        new_path = config['user_data_dir'] / USERPATH_HYPEROPTS / (args["hyperopt"] + ".py")
+        new_path = config['user_data_dir'] / USERPATH_HYPEROPTS / (args['hyperopt'] + '.py')
 
         if new_path.exists():
             raise OperationalException(f"`{new_path}` already exists. "

@@ -6,15 +6,14 @@ from typing import Any, Dict, List
 import arrow
 
 from freqtrade.configuration import TimeRange, setup_utils_configuration
-from freqtrade.data.converter import (convert_ohlcv_format,
-                                      convert_trades_format)
-from freqtrade.data.history import (convert_trades_to_ohlcv,
-                                    refresh_backtest_ohlcv_data,
+from freqtrade.data.converter import convert_ohlcv_format, convert_trades_format
+from freqtrade.data.history import (convert_trades_to_ohlcv, refresh_backtest_ohlcv_data,
                                     refresh_backtest_trades_data)
 from freqtrade.exceptions import OperationalException
 from freqtrade.exchange import timeframe_to_minutes
 from freqtrade.resolvers import ExchangeResolver
 from freqtrade.state import RunMode
+
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +24,24 @@ def start_download_data(args: Dict[str, Any]) -> None:
     """
     config = setup_utils_configuration(args, RunMode.UTIL_EXCHANGE)
 
+    if 'days' in config and 'timerange' in config:
+        raise OperationalException("--days and --timerange are mutually exclusive. "
+                                   "You can only specify one or the other.")
     timerange = TimeRange()
     if 'days' in config:
         time_since = arrow.utcnow().shift(days=-config['days']).strftime("%Y%m%d")
         timerange = TimeRange.parse_timerange(f'{time_since}-')
+
+    if 'timerange' in config:
+        timerange = timerange.parse_timerange(config['timerange'])
 
     if 'pairs' not in config:
         raise OperationalException(
             "Downloading data requires a list of pairs. "
             "Please check the documentation on how to configure this.")
 
-    logger.info(f'About to download pairs: {config["pairs"]}, '
-                f'intervals: {config["timeframes"]} to {config["datadir"]}')
+    logger.info(f"About to download pairs: {config['pairs']}, "
+                f"intervals: {config['timeframes']} to {config['datadir']}")
 
     pairs_not_available: List[str] = []
 
@@ -51,21 +56,21 @@ def start_download_data(args: Dict[str, Any]) -> None:
 
         if config.get('download_trades'):
             pairs_not_available = refresh_backtest_trades_data(
-                exchange, pairs=config["pairs"], datadir=config['datadir'],
-                timerange=timerange, erase=bool(config.get("erase")),
+                exchange, pairs=config['pairs'], datadir=config['datadir'],
+                timerange=timerange, erase=bool(config.get('erase')),
                 data_format=config['dataformat_trades'])
 
             # Convert downloaded trade data to different timeframes
             convert_trades_to_ohlcv(
-                pairs=config["pairs"], timeframes=config["timeframes"],
-                datadir=config['datadir'], timerange=timerange, erase=bool(config.get("erase")),
+                pairs=config['pairs'], timeframes=config['timeframes'],
+                datadir=config['datadir'], timerange=timerange, erase=bool(config.get('erase')),
                 data_format_ohlcv=config['dataformat_ohlcv'],
                 data_format_trades=config['dataformat_trades'],
                 )
         else:
             pairs_not_available = refresh_backtest_ohlcv_data(
-                exchange, pairs=config["pairs"], timeframes=config["timeframes"],
-                datadir=config['datadir'], timerange=timerange, erase=bool(config.get("erase")),
+                exchange, pairs=config['pairs'], timeframes=config['timeframes'],
+                datadir=config['datadir'], timerange=timerange, erase=bool(config.get('erase')),
                 data_format=config['dataformat_ohlcv'])
 
     except KeyboardInterrupt:
@@ -99,8 +104,9 @@ def start_list_data(args: Dict[str, Any]) -> None:
 
     config = setup_utils_configuration(args, RunMode.UTIL_NO_EXCHANGE)
 
-    from freqtrade.data.history.idatahandler import get_datahandler
     from tabulate import tabulate
+
+    from freqtrade.data.history.idatahandler import get_datahandler
     dhc = get_datahandler(config['datadir'], config['dataformat_ohlcv'])
 
     paircombs = dhc.ohlcv_get_available_data(config['datadir'])

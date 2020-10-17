@@ -1,14 +1,14 @@
 """ Kraken exchange subclass """
 import logging
-from typing import Dict
+from typing import Any, Dict
 
 import ccxt
 
-from freqtrade.exceptions import (DDosProtection, ExchangeError,
-                                  InvalidOrderException, OperationalException,
-                                  TemporaryError)
+from freqtrade.exceptions import (DDosProtection, InsufficientFundsError, InvalidOrderException,
+                                  OperationalException, TemporaryError)
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
+
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,16 @@ class Kraken(Exchange):
         "trades_pagination": "id",
         "trades_pagination_arg": "since",
     }
+
+    def market_is_tradable(self, market: Dict[str, Any]) -> bool:
+        """
+        Check if the market symbol is tradable by Freqtrade.
+        Default checks + check if pair is darkpool pair.
+        """
+        parent_check = super().market_is_tradable(market)
+
+        return (parent_check and
+                market.get('darkpool', False) is False)
 
     @retrier
     def get_balances(self) -> dict:
@@ -88,8 +98,8 @@ class Kraken(Exchange):
                         'stop price: %s.', pair, stop_price)
             return order
         except ccxt.InsufficientFunds as e:
-            raise ExchangeError(
-                f'Insufficient funds to create {ordertype} sell order on market {pair}.'
+            raise InsufficientFundsError(
+                f'Insufficient funds to create {ordertype} sell order on market {pair}. '
                 f'Tried to create stoploss with amount {amount} at stoploss {stop_price}. '
                 f'Message: {e}') from e
         except ccxt.InvalidOrder as e:

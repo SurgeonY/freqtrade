@@ -2,22 +2,21 @@ import re
 from pathlib import Path
 from unittest.mock import MagicMock, PropertyMock
 
+import arrow
 import pytest
 
-from freqtrade.commands import (start_convert_data, start_create_userdir,
-                                start_download_data, start_hyperopt_list,
-                                start_hyperopt_show, start_list_data,
-                                start_list_exchanges, start_list_hyperopts,
-                                start_list_markets, start_list_strategies,
-                                start_list_timeframes, start_new_hyperopt,
-                                start_new_strategy, start_show_trades,
-                                start_test_pairlist, start_trading)
+from freqtrade.commands import (start_convert_data, start_create_userdir, start_download_data,
+                                start_hyperopt_list, start_hyperopt_show, start_list_data,
+                                start_list_exchanges, start_list_hyperopts, start_list_markets,
+                                start_list_strategies, start_list_timeframes, start_new_hyperopt,
+                                start_new_strategy, start_show_trades, start_test_pairlist,
+                                start_trading)
 from freqtrade.configuration import setup_utils_configuration
 from freqtrade.exceptions import OperationalException
 from freqtrade.state import RunMode
-from tests.conftest import (create_mock_trades, get_args, log_has, log_has_re,
-                            patch_exchange,
+from tests.conftest import (create_mock_trades, get_args, log_has, log_has_re, patch_exchange,
                             patched_configuration_load_config_file)
+from tests.conftest_trades import MOCK_TRADE_COUNT
 
 
 def test_setup_utils_configuration():
@@ -552,6 +551,50 @@ def test_download_data_keyboardInterrupt(mocker, caplog, markets):
     assert dl_mock.call_count == 1
 
 
+def test_download_data_timerange(mocker, caplog, markets):
+    dl_mock = mocker.patch('freqtrade.commands.data_commands.refresh_backtest_ohlcv_data',
+                           MagicMock(return_value=["ETH/BTC", "XRP/BTC"]))
+    patch_exchange(mocker)
+    mocker.patch(
+        'freqtrade.exchange.Exchange.markets', PropertyMock(return_value=markets)
+    )
+    args = [
+        "download-data",
+        "--exchange", "binance",
+        "--pairs", "ETH/BTC", "XRP/BTC",
+        "--days", "20",
+        "--timerange", "20200101-"
+    ]
+    with pytest.raises(OperationalException,
+                       match=r"--days and --timerange are mutually.*"):
+        start_download_data(get_args(args))
+    assert dl_mock.call_count == 0
+
+    args = [
+        "download-data",
+        "--exchange", "binance",
+        "--pairs", "ETH/BTC", "XRP/BTC",
+        "--days", "20",
+    ]
+    start_download_data(get_args(args))
+    assert dl_mock.call_count == 1
+    # 20days ago
+    days_ago = arrow.get(arrow.utcnow().shift(days=-20).date()).timestamp
+    assert dl_mock.call_args_list[0][1]['timerange'].startts == days_ago
+
+    dl_mock.reset_mock()
+    args = [
+        "download-data",
+        "--exchange", "binance",
+        "--pairs", "ETH/BTC", "XRP/BTC",
+        "--timerange", "20200101-"
+    ]
+    start_download_data(get_args(args))
+    assert dl_mock.call_count == 1
+
+    assert dl_mock.call_args_list[0][1]['timerange'].startts == arrow.Arrow(2020, 1, 1).timestamp
+
+
 def test_download_data_no_markets(mocker, caplog):
     dl_mock = mocker.patch('freqtrade.commands.data_commands.refresh_backtest_ohlcv_data',
                            MagicMock(return_value=["ETH/BTC", "XRP/BTC"]))
@@ -667,7 +710,7 @@ def test_start_list_hyperopts(mocker, caplog, capsys):
     args = [
         "list-hyperopts",
         "--hyperopt-path",
-        str(Path(__file__).parent.parent / "optimize"),
+        str(Path(__file__).parent.parent / "optimize" / "hyperopts"),
         "-1"
     ]
     pargs = get_args(args)
@@ -683,7 +726,7 @@ def test_start_list_hyperopts(mocker, caplog, capsys):
     args = [
         "list-hyperopts",
         "--hyperopt-path",
-        str(Path(__file__).parent.parent / "optimize"),
+        str(Path(__file__).parent.parent / "optimize" / "hyperopts"),
     ]
     pargs = get_args(args)
     # pargs['config'] = None
@@ -692,7 +735,6 @@ def test_start_list_hyperopts(mocker, caplog, capsys):
     assert "TestHyperoptLegacy" not in captured.out
     assert "legacy_hyperopt.py" not in captured.out
     assert "DefaultHyperOpt" in captured.out
-    assert "test_hyperopt.py" in captured.out
 
 
 def test_start_test_pairlist(mocker, caplog, tickers, default_conf, capsys):
@@ -736,7 +778,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
 
     args = [
         "hyperopt-list",
-        "--no-details"
+        "--no-details",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -749,7 +791,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--best",
-        "--no-details"
+        "--no-details",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -763,7 +805,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--profitable",
-        "--no-details"
+        "--no-details",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -776,7 +818,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
                          " 11/12", " 12/12"])
     args = [
         "hyperopt-list",
-        "--profitable"
+        "--profitable",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -792,7 +834,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
         "hyperopt-list",
         "--no-details",
         "--no-color",
-        "--min-trades", "20"
+        "--min-trades", "20",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -806,7 +848,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
         "hyperopt-list",
         "--profitable",
         "--no-details",
-        "--max-trades", "20"
+        "--max-trades", "20",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -821,7 +863,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
         "hyperopt-list",
         "--profitable",
         "--no-details",
-        "--min-avg-profit", "0.11"
+        "--min-avg-profit", "0.11",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -835,7 +877,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--no-details",
-        "--max-avg-profit", "0.10"
+        "--max-avg-profit", "0.10",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -849,7 +891,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--no-details",
-        "--min-total-profit", "0.4"
+        "--min-total-profit", "0.4",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -863,7 +905,35 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--no-details",
-        "--max-total-profit", "0.4"
+        "--max-total-profit", "0.4",
+    ]
+    pargs = get_args(args)
+    pargs['config'] = None
+    start_hyperopt_list(pargs)
+    captured = capsys.readouterr()
+    assert all(x in captured.out
+               for x in [" 1/12", " 2/12", " 3/12", " 5/12", " 6/12", " 7/12", " 8/12",
+                         " 9/12", " 11/12"])
+    assert all(x not in captured.out
+               for x in [" 4/12", " 10/12", " 12/12"])
+    args = [
+        "hyperopt-list",
+        "--no-details",
+        "--min-objective", "0.1",
+    ]
+    pargs = get_args(args)
+    pargs['config'] = None
+    start_hyperopt_list(pargs)
+    captured = capsys.readouterr()
+    assert all(x in captured.out
+               for x in [" 10/12"])
+    assert all(x not in captured.out
+               for x in [" 1/12", " 2/12", " 3/12", " 4/12", " 5/12", " 6/12", " 7/12", " 8/12",
+                         " 9/12", " 11/12", " 12/12"])
+    args = [
+        "hyperopt-list",
+        "--no-details",
+        "--max-objective", "0.1",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -878,7 +948,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
         "hyperopt-list",
         "--profitable",
         "--no-details",
-        "--min-avg-time", "2000"
+        "--min-avg-time", "2000",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -892,7 +962,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--no-details",
-        "--max-avg-time", "1500"
+        "--max-avg-time", "1500",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -906,7 +976,7 @@ def test_hyperopt_list(mocker, capsys, caplog, hyperopt_results):
     args = [
         "hyperopt-list",
         "--no-details",
-        "--export-csv", "test_file.csv"
+        "--export-csv", "test_file.csv",
     ]
     pargs = get_args(args)
     pargs['config'] = None
@@ -1079,7 +1149,7 @@ def test_start_list_data(testdatadir, capsys):
 
 @pytest.mark.usefixtures("init_persistence")
 def test_show_trades(mocker, fee, capsys, caplog):
-    mocker.patch("freqtrade.persistence.init")
+    mocker.patch("freqtrade.persistence.init_db")
     create_mock_trades(fee)
     args = [
         "show-trades",
@@ -1089,7 +1159,7 @@ def test_show_trades(mocker, fee, capsys, caplog):
     pargs = get_args(args)
     pargs['config'] = None
     start_show_trades(pargs)
-    assert log_has("Printing 3 Trades: ", caplog)
+    assert log_has(f"Printing {MOCK_TRADE_COUNT} Trades: ", caplog)
     captured = capsys.readouterr()
     assert "Trade(id=1" in captured.out
     assert "Trade(id=2" in captured.out

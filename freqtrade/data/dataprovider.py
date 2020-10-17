@@ -17,6 +17,7 @@ from freqtrade.exceptions import ExchangeError, OperationalException
 from freqtrade.exchange import Exchange
 from freqtrade.state import RunMode
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +39,12 @@ class DataProvider:
         :param dataframe: analyzed dataframe
         """
         self.__cached_pairs[(pair, timeframe)] = (dataframe, Arrow.utcnow().datetime)
+
+    def add_pairlisthandler(self, pairlists) -> None:
+        """
+        Allow adding pairlisthandler after initialization
+        """
+        self._pairlists = pairlists
 
     def refresh(self,
                 pairlist: ListPairsWithTimeframes,

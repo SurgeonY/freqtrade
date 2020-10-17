@@ -11,6 +11,7 @@ from tests.conftest import patch_exchange
 from tests.optimize import (BTContainer, BTrade, _build_backtest_dataframe,
                             _get_frame_time_from_offset, tests_timeframe)
 
+
 # Test 0: Sell with signal sell in candle 3
 # Test with Stop-loss at 1%
 tc0 = BTContainer(data=[
@@ -395,5 +396,5 @@ def test_backtest_results(default_conf, fee, mocker, caplog, data) -> None:
     for c, trade in enumerate(data.trades):
         res = results.iloc[c]
         assert res.sell_reason == trade.sell_reason
-        assert res.open_time == _get_frame_time_from_offset(trade.open_tick)
-        assert res.close_time == _get_frame_time_from_offset(trade.close_tick)
+        assert res.open_date == _get_frame_time_from_offset(trade.open_tick)
+        assert res.close_date == _get_frame_time_from_offset(trade.close_tick)

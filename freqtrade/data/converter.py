@@ -10,8 +10,8 @@ from typing import Any, Dict, List
 import pandas as pd
 from pandas import DataFrame, to_datetime
 
-from freqtrade.constants import (DEFAULT_DATAFRAME_COLUMNS,
-                                 DEFAULT_TRADES_COLUMNS)
+from freqtrade.constants import DEFAULT_DATAFRAME_COLUMNS, DEFAULT_TRADES_COLUMNS
+
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,8 @@ def convert_ohlcv_format(config: Dict[str, Any], convert_from: str, convert_to: 
                                   drop_incomplete=False,
                                   startup_candles=0)
             logger.info(f"Converting {len(data)} candles for {pair}")
-            trg.ohlcv_store(pair=pair, timeframe=timeframe, data=data)
-            if erase and convert_from != convert_to:
-                logger.info(f"Deleting source data for {pair} / {timeframe}")
-                src.ohlcv_purge(pair=pair, timeframe=timeframe)
+            if len(data) > 0:
+                trg.ohlcv_store(pair=pair, timeframe=timeframe, data=data)
+                if erase and convert_from != convert_to:
+                    logger.info(f"Deleting source data for {pair} / {timeframe}")
+                    src.ohlcv_purge(pair=pair, timeframe=timeframe)

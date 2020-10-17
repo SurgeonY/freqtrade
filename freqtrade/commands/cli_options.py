@@ -252,23 +252,20 @@ AVAILABLE_CLI_OPTIONS = {
         metavar='INT',
         default=1,
     ),
-    "hyperopt_continue": Arg(
-        "--continue",
-        help="Continue hyperopt from previous runs. "
-        "By default, temporary files will be removed and hyperopt will start from scratch.",
-        default=False,
-        action='store_true',
-    ),
     "hyperopt_loss": Arg(
         '--hyperopt-loss',
         help='Specify the class name of the hyperopt loss function class (IHyperOptLoss). '
         'Different functions can generate completely different results, '
         'since the target for optimization is different. Built-in Hyperopt-loss-functions are: '
-        'DefaultHyperOptLoss, OnlyProfitHyperOptLoss, SharpeHyperOptLoss, SharpeHyperOptLossDaily, '
-        'SortinoHyperOptLoss, SortinoHyperOptLossDaily.'
-        '(default: `%(default)s`).',
+        'ShortTradeDurHyperOptLoss, OnlyProfitHyperOptLoss, SharpeHyperOptLoss, '
+        'SharpeHyperOptLossDaily, SortinoHyperOptLoss, SortinoHyperOptLossDaily.',
         metavar='NAME',
-        default=constants.DEFAULT_HYPEROPT_LOSS,
+    ),
+    "hyperoptexportfilename": Arg(
+        '--hyperopt-filename',
+        help='Hyperopt result filename.'
+        'Example: `--hyperopt-filename=hyperopt_results_2020-09-27_16-20-48.pickle`',
+        metavar='FILENAME',
     ),
     # List exchanges
     "print_one_column": Arg(
@@ -375,7 +372,7 @@ AVAILABLE_CLI_OPTIONS = {
         help='Specify which tickers to download. Space-separated list. '
         'Default: `1m 5m`.',
         choices=['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h',
-                 '6h', '8h', '12h', '1d', '3d', '1w'],
+                 '6h', '8h', '12h', '1d', '3d', '1w', '2w', '1M', '1y'],
         default=['1m', '5m'],
         nargs='+',
     ),
@@ -455,37 +452,49 @@ AVAILABLE_CLI_OPTIONS = {
     ),
     "hyperopt_list_min_avg_time": Arg(
         '--min-avg-time',
-        help='Select epochs on above average time.',
+        help='Select epochs above average time.',
         type=float,
         metavar='FLOAT',
     ),
     "hyperopt_list_max_avg_time": Arg(
         '--max-avg-time',
-        help='Select epochs on under average time.',
+        help='Select epochs below average time.',
         type=float,
         metavar='FLOAT',
     ),
     "hyperopt_list_min_avg_profit": Arg(
         '--min-avg-profit',
-        help='Select epochs on above average profit.',
+        help='Select epochs above average profit.',
         type=float,
         metavar='FLOAT',
     ),
     "hyperopt_list_max_avg_profit": Arg(
         '--max-avg-profit',
-        help='Select epochs on below average profit.',
+        help='Select epochs below average profit.',
         type=float,
         metavar='FLOAT',
     ),
     "hyperopt_list_min_total_profit": Arg(
         '--min-total-profit',
-        help='Select epochs on above total profit.',
+        help='Select epochs above total profit.',
         type=float,
         metavar='FLOAT',
     ),
     "hyperopt_list_max_total_profit": Arg(
         '--max-total-profit',
-        help='Select epochs on below total profit.',
+        help='Select epochs below total profit.',
+        type=float,
+        metavar='FLOAT',
+    ),
+    "hyperopt_list_min_objective": Arg(
+        '--min-objective',
+        help='Select epochs above objective.',
+        type=float,
+        metavar='FLOAT',
+    ),
+    "hyperopt_list_max_objective": Arg(
+        '--max-objective',
+        help='Select epochs below objective.',
         type=float,
         metavar='FLOAT',
     ),

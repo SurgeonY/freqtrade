@@ -29,7 +29,14 @@ class PricingError(DependencyException):
     """
 
 
-class InvalidOrderException(FreqtradeException):
+class ExchangeError(DependencyException):
+    """
+    Error raised out of the exchange.
+    Has multiple Errors to determine the appropriate error.
+    """
+
+
+class InvalidOrderException(ExchangeError):
     """
     This is returned when the order is not valid. Example:
     If stoploss on exchange order is hit, then trying to cancel the order
@@ -44,10 +51,10 @@ class RetryableOrderError(InvalidOrderException):
     """
 
 
-class ExchangeError(DependencyException):
+class InsufficientFundsError(InvalidOrderException):
     """
-    Error raised out of the exchange.
-    Has multiple Errors to determine the appropriate error.
+    This error is used when there are not enough funds available on the exchange
+    to create an order.
     """
 
 

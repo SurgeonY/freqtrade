@@ -36,7 +36,7 @@ class IPairList(ABC):
         self._pairlist_pos = pairlist_pos
         self.refresh_period = self._pairlistconfig.get('refresh_period', 1800)
         self._last_refresh = 0
-        self._log_cache = TTLCache(maxsize=1024, ttl=self.refresh_period)
+        self._log_cache: TTLCache = TTLCache(maxsize=1024, ttl=self.refresh_period)
 
     @property
     def name(self) -> str:
@@ -160,6 +160,11 @@ class IPairList(ABC):
             if pair not in markets:
                 logger.warning(f"Pair {pair} is not compatible with exchange "
                                f"{self._exchange.name}. Removing it from whitelist..")
+                continue
+
+            if not self._exchange.market_is_tradable(markets[pair]):
+                logger.warning(f"Pair {pair} is not tradable with Freqtrade."
+                               "Removing it from whitelist..")
                 continue
 
             if self._exchange.get_pair_quote_currency(pair) != self._config['stake_currency']:

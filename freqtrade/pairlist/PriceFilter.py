@@ -4,6 +4,7 @@ Price pair list filter
 import logging
 from typing import Any, Dict
 
+from freqtrade.exceptions import OperationalException
 from freqtrade.pairlist.IPairList import IPairList
 
 
@@ -18,11 +19,17 @@ class PriceFilter(IPairList):
         super().__init__(exchange, pairlistmanager, config, pairlistconfig, pairlist_pos)
 
         self._low_price_ratio = pairlistconfig.get('low_price_ratio', 0)
+        if self._low_price_ratio < 0:
+            raise OperationalException("PriceFilter requires low_price_ratio to be >= 0")
         self._min_price = pairlistconfig.get('min_price', 0)
+        if self._min_price < 0:
+            raise OperationalException("PriceFilter requires min_price to be >= 0")
         self._max_price = pairlistconfig.get('max_price', 0)
-        self._enabled = ((self._low_price_ratio != 0) or
-                         (self._min_price != 0) or
-                         (self._max_price != 0))
+        if self._max_price < 0:
+            raise OperationalException("PriceFilter requires max_price to be >= 0")
+        self._enabled = ((self._low_price_ratio > 0) or
+                         (self._min_price > 0) or
+                         (self._max_price > 0))
 
     @property
     def needstickers(self) -> bool:
@@ -56,7 +63,7 @@ class PriceFilter(IPairList):
         :param ticker: ticker dict as returned from ccxt.load_markets()
         :return: True if the pair can stay, false if it should be removed
         """
-        if ticker['last'] is None:
+        if ticker['last'] is None or ticker['last'] == 0:
             self.log_on_refresh(logger.info,
                                 f"Removed {ticker['symbol']} from whitelist, because "
                                 "ticker['last'] is empty (Usually no trade in the last 24h).")
