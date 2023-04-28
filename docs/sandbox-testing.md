@@ -6,6 +6,10 @@ With some configuration, freqtrade (in combination with ccxt) provides access to
 This document is an overview to configure Freqtrade to be used with sandboxes.
 This can be useful to developers and trader alike.
 
+!!! Warning
+    Sandboxes usually have very low volume, and either a very wide spread, or no orders available at all.
+    Therefore, sandboxes will usually not do a good job of showing you how a strategy would work in real trading.
+
 ## Exchanges known to have a sandbox / testnet
 
 * [binance](https://testnet.binance.vision/)
@@ -100,16 +104,16 @@ To mitigate this, you can try to match the first order on the opposite orderbook
 
 ``` jsonc
   "order_types": {
-    "buy": "limit",
-    "sell": "limit"
+    "entry": "limit",
+    "exit": "limit"
     // ...
   },
-  "bid_strategy": {
-    "price_side": "ask",
+  "entry_pricing": {
+    "price_side": "other",
     // ...
   },
-  "ask_strategy":{
-    "price_side": "bid",
+  "exit_pricing":{
+    "price_side": "other",
     // ...
   },
   ```

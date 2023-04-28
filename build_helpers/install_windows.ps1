@@ -1,17 +1,21 @@
 # Downloads don't work automatically, since the URL is regenerated via javascript.
 # Downloaded from https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib
-# Invoke-WebRequest -Uri "https://download.lfd.uci.edu/pythonlibs/xxxxxxx/TA_Lib-0.4.17-cp37-cp37m-win_amd64.whl" -OutFile "TA_Lib-0.4.17-cp37-cp37m-win_amd64.whl"
 
-python -m pip install --upgrade pip
+python -m pip install --upgrade pip==23.0.1 wheel==0.38.4
 
 $pyv = python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
 
-if ($pyv -eq '3.7') {
-    pip install build_helpers\TA_Lib-0.4.18-cp37-cp37m-win_amd64.whl
-}
 if ($pyv -eq '3.8') {
-    pip install build_helpers\TA_Lib-0.4.18-cp38-cp38-win_amd64.whl
+    pip install build_helpers\TA_Lib-0.4.26-cp38-cp38-win_amd64.whl
 }
-
+if ($pyv -eq '3.9') {
+    pip install build_helpers\TA_Lib-0.4.26-cp39-cp39-win_amd64.whl
+}
+if ($pyv -eq '3.10') {
+    pip install build_helpers\TA_Lib-0.4.26-cp310-cp310-win_amd64.whl
+}
+if ($pyv -eq '3.11') {
+    pip install build_helpers\TA_Lib-0.4.26-cp311-cp311-win_amd64.whl
+}
 pip install -r requirements-dev.txt
 pip install -e .

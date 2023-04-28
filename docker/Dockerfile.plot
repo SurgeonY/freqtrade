@@ -1,10 +1,8 @@
-ARG sourceimage=develop
-FROM freqtradeorg/freqtrade:${sourceimage}
+ARG sourceimage=freqtradeorg/freqtrade
+ARG sourcetag=develop
+FROM ${sourceimage}:${sourcetag}
 
 # Install dependencies
 COPY requirements-plot.txt /freqtrade/
 
-RUN pip install -r requirements-plot.txt --no-cache-dir
-
-# Empty the ENTRYPOINT to allow all commands
-ENTRYPOINT []
+RUN pip install -r requirements-plot.txt --user --no-cache-dir

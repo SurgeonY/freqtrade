@@ -12,8 +12,7 @@ Few pointers for contributions:
 - New features need to contain unit tests, must conform to PEP8 (max-line-length = 100) and should be documented with the introduction PR.
 - PR's can be declared as `[WIP]` - which signify Work in Progress Pull Requests (which are not finished).
 
-If you are unsure, discuss the feature on our [Slack](https://join.slack.com/t/highfrequencybot/shared_invite/enQtNjU5ODcwNjI1MDU3LTU1MTgxMjkzNmYxNWE1MDEzYzQ3YmU4N2MwZjUyNjJjODRkMDVkNjg4YTAyZGYzYzlhOTZiMTE4ZjQ4YzM0OGE)
-or in a [issue](https://github.com/freqtrade/freqtrade/issues) before a PR.
+If you are unsure, discuss the feature on our [discord server](https://discord.gg/p7nuUNVfP7) or in a [issue](https://github.com/freqtrade/freqtrade/issues) before a Pull Request.
 
 ## Getting started
 
@@ -46,16 +45,24 @@ pytest tests/test_<file_name>.py::test_<method_name>
 
 ### 2. Test if your code is PEP8 compliant
 
-#### Run Flake8
+#### Run Ruff
 
 ```bash
-flake8 freqtrade tests scripts
+ruff .
 ```
 
-We receive a lot of code that fails the `flake8` checks.
+We receive a lot of code that fails the `ruff` checks.
 To help with that, we encourage you to install the git pre-commit 
-hook that will warn you when you try to commit code that fails these checks. 
-Guide for installing them is [here](http://flake8.pycqa.org/en/latest/user/using-hooks.html).
+hook that will warn you when you try to commit code that fails these checks.
+
+you can manually run pre-commit with `pre-commit run -a`.
+
+##### Additional styles applied
+
+* Have docstrings on all public methods
+* Use double-quotes for docstrings
+* Multiline docstrings should be indented to the level of the first quote
+* Doc-strings should follow the reST format (`:param xxx: ...`, `:return: ...`, `:raises KeyError: ... `)
 
 ### 3. Test if all type-hints are correct
 
@@ -63,6 +70,14 @@ Guide for installing them is [here](http://flake8.pycqa.org/en/latest/user/using
 
 ``` bash
 mypy freqtrade
+```
+
+### 4. Ensure all imports are correct
+
+#### Run isort
+
+``` bash
+isort .
 ```
 
 ## (Core)-Committer Guide
